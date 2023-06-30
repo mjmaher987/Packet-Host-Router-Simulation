@@ -52,6 +52,16 @@ class Task:
     def finish(self):
         self.end_execution_time = self.start_execution_time + self.execution_time
 
+    @staticmethod
+    def get_cumulative_queue_time(all_tasks, end_time, priority=None):
+        cum_sum = 0
+        for t in all_tasks:
+            if t.arrival <= end_time and (priority is not None or priority == t.priority):
+                cum_sum += t.start_execution_time - t.arrival
+            elif t.arrival >= end_time:
+                break
+        return cum_sum
+
 
 class BaseQueue:
     def __init__(self, length_limit):
@@ -72,7 +82,7 @@ class FIFO(BaseQueue):
 
     def get_next(self):
         try:
-            return self.queue.pop()
+            return self.queue.pop(0)
         except IndexError:
             return None
 
@@ -90,7 +100,7 @@ class WRR(BaseQueue):
     def get_next(self):
         for priority in range(3):
             if self._priority_queues[priority]:
-                return self._priority_queues[priority].pop()
+                return self._priority_queues[priority].pop(0)
         return None
 
     def add_arrival_to_queue(self, task):
@@ -105,7 +115,7 @@ class NPPS(BaseQueue):
 
     def get_next(self):
         try:
-            return self.queue.pop()
+            return self.queue.pop(0)
         except IndexError:
             return None
 
@@ -177,7 +187,10 @@ class Router:
                 if next_event == EventType.NEW_TASK.value:
                     free_processor = self.get_first_free_processor()
                     next_task = Task.get_next_arrival_task(self.all_tasks)
+                    # self.service_policy.add_arrival_to_queue(next_task)
+                    # next_task.is_in_queue = True
                     if free_processor is not None:
+                        # self.execute(self.service_policy.get_next(), free_processor, next_event_time)
                         self.execute(next_task, free_processor, next_event_time)
                     else:
                         next_task.is_in_queue = True
@@ -210,12 +223,12 @@ class Router:
         self.busy_processors.append(processor)
 
 
-X = 1  # parameter of the poisson distribution (in packet generation)
-Y = 1  # parameter of the exponential distribution (in router - for service time generation)
-T = 5  # Total simulation time
+X = 3  # parameter of the poisson distribution (in packet generation)
+Y = 5  # parameter of the exponential distribution (in router - for service time generation)
+T = 500  # Total simulation time
 
-PROCESSORS_NUM = 2  # It can vary
-SERVICE_POLICY = [FIFO, WRR, NPPS][2]  # It can vary
+PROCESSORS_NUM = 1  # It can vary
+SERVICE_POLICY = [FIFO, WRR, NPPS][0]  # It can vary
 LENGTH_LIMIT = 20  # It can vary
 
 generator = np.random.default_rng()
@@ -225,12 +238,24 @@ priorities = np.random.choice([0, 1, 2], p=[0.2, 0.3, 0.5], size=T * X * 2)
 generator = np.random.default_rng()
 packet_times = generator.exponential(Y, size=T * X * 2)
 
-packets = [Task(inter_arrival=arrival, priority=priority, execute_time=time)
-           for (arrival, priority, time) in zip(packet_arrivals, priorities, packet_times)]
+arrivals = 0
+packets = []
+counter = 0
+while arrivals <= T:
+    packets.append(
+        Task(inter_arrival=packet_arrivals[counter], priority=priorities[counter], execute_time=packet_times[counter]))
+    arrivals += packet_arrivals[counter]
+    counter += 1
 
 r = Router(processors_num=PROCESSORS_NUM, service_policy=SERVICE_POLICY, length_limit=LENGTH_LIMIT, simulation_time=T,
            all_tasks=packets)
 r.execute_all_tasks()
+
+# queue_times = []
+# time_steps = []
+# for i in range(1, 500):
+#     queue_times.append(Task.get_cumulative_queue_time(packets, T, None))
+#     time_steps.append(i)
 
 import csv
 
@@ -244,11 +269,11 @@ with open('tasks.csv', 'w', newline='') as csvfile:
 
     # Write the header row
     writer.writerow(
-        ['task_id', 'inter_arrival', 'priority', 'execution_time', 'start_execution_time', 'end_execution_time',
-         'processor'])
+        ['task_id', 'inter_arrival', 'arrival', 'priority', 'execution_time', 'start_execution_time',
+         'end_execution_time', 'processor'])
 
     # Write the data rows
     for task in tasks:
         writer.writerow(
-            [task.task_id, task.inter_arrival, task.priority, task.execution_time, task.start_execution_time,
-             task.end_execution_time, task.processor])
+            [task.task_id, task.inter_arrival, task.arrival, task.priority, task.execution_time,
+             task.start_execution_time, task.end_execution_time, task.processor])
