@@ -20,7 +20,8 @@ class Task:
         self.start_execution_time = None
         self.end_execution_time = None
         self.processor = None
-        self.is_in_queue = False
+        self.gone_to_router = False
+        self.dropped = False
         Task.TASK_ID += 1
 
     def __str__(self):
@@ -29,7 +30,7 @@ class Task:
     @staticmethod
     def get_next_arrival_task(all_tasks):  # all tasks are sorted
         for t in all_tasks:
-            if t.start_execution_time is None and not t.is_in_queue:
+            if not t.gone_to_router:
                 return t
         raise FinishProgramException()
 
@@ -56,8 +57,11 @@ class Task:
     def get_cumulative_queue_time(all_tasks, end_time, priority=None):
         cum_sum = 0
         for t in all_tasks:
-            if t.arrival <= end_time and (priority is not None or priority == t.priority):
-                cum_sum += t.start_execution_time - t.arrival
+            if t.arrival <= end_time and (priority is None or priority == t.priority):
+                if t.start_execution_time is not None:
+                    cum_sum += t.start_execution_time - t.arrival
+                else:
+                    cum_sum += end_time - t.arrival
             elif t.arrival >= end_time:
                 break
         return cum_sum
@@ -89,6 +93,8 @@ class FIFO(BaseQueue):
     def add_arrival_to_queue(self, task):
         if len(self.queue) < self.length_limit:
             self.queue.append(task)
+        else:
+            task.dropped = True
 
 
 class WRR(BaseQueue):
@@ -106,6 +112,8 @@ class WRR(BaseQueue):
     def add_arrival_to_queue(self, task):
         if len(self._priority_queues[task.priority]) < self.length_limit:
             self._priority_queues[task.priority].append(task)
+        else:
+            task.dropped = True
 
 
 class NPPS(BaseQueue):
@@ -123,6 +131,8 @@ class NPPS(BaseQueue):
         if len(self.queue) < self.length_limit:
             self.queue.append(task)
             self.queue = sorted(self.queue, key=lambda x: (x.priority, x.inter_arrival))
+        else:
+            task.dropped = True
 
 
 class EventType(Enum):
@@ -187,14 +197,10 @@ class Router:
                 if next_event == EventType.NEW_TASK.value:
                     free_processor = self.get_first_free_processor()
                     next_task = Task.get_next_arrival_task(self.all_tasks)
-                    # self.service_policy.add_arrival_to_queue(next_task)
-                    # next_task.is_in_queue = True
+                    self.service_policy.add_arrival_to_queue(next_task)
+                    next_task.gone_to_router = True
                     if free_processor is not None:
-                        # self.execute(self.service_policy.get_next(), free_processor, next_event_time)
-                        self.execute(next_task, free_processor, next_event_time)
-                    else:
-                        next_task.is_in_queue = True
-                        self.service_policy.add_arrival_to_queue(next_task)
+                        self.execute(self.service_policy.get_next(), free_processor, next_event_time)
                 elif next_event == EventType.END_TASK.value:
                     free_processor = self.get_first_free_processor()
                     if free_processor is not None:
@@ -203,8 +209,6 @@ class Router:
                             self.execute(task_in_queue, free_processor, next_event_time)
                     else:
                         raise Exception('how is it possible !?')
-                else:
-                    raise Exception(f'next_event is not in [FINISH_PROGRAM, NEW_TASK, END_TASK]')
                 self.current_time = next_event_time
         except FinishProgramException:
             self.finish_all()
@@ -213,7 +217,6 @@ class Router:
 
     def finish_all(self):
         for t in self.all_tasks:
-            t: Task
             if t.start_execution_time is not None and t.end_execution_time is None:
                 t.finish()
 
@@ -224,11 +227,11 @@ class Router:
 
 
 X = 3  # parameter of the poisson distribution (in packet generation)
-Y = 5  # parameter of the exponential distribution (in router - for service time generation)
+Y = 6  # parameter of the exponential distribution (in router - for service time generation)
 T = 500  # Total simulation time
 
 PROCESSORS_NUM = 1  # It can vary
-SERVICE_POLICY = [FIFO, WRR, NPPS][0]  # It can vary
+SERVICE_POLICY = [FIFO, WRR, NPPS][2]  # It can vary
 LENGTH_LIMIT = 20  # It can vary
 
 generator = np.random.default_rng()
@@ -241,7 +244,7 @@ packet_times = generator.exponential(Y, size=T * X * 2)
 arrivals = 0
 packets = []
 counter = 0
-while arrivals <= T:
+while arrivals + packet_arrivals[counter] <= T:
     packets.append(
         Task(inter_arrival=packet_arrivals[counter], priority=priorities[counter], execute_time=packet_times[counter]))
     arrivals += packet_arrivals[counter]
@@ -250,12 +253,6 @@ while arrivals <= T:
 r = Router(processors_num=PROCESSORS_NUM, service_policy=SERVICE_POLICY, length_limit=LENGTH_LIMIT, simulation_time=T,
            all_tasks=packets)
 r.execute_all_tasks()
-
-# queue_times = []
-# time_steps = []
-# for i in range(1, 500):
-#     queue_times.append(Task.get_cumulative_queue_time(packets, T, None))
-#     time_steps.append(i)
 
 import csv
 
@@ -270,12 +267,10 @@ with open('tasks.csv', 'w', newline='') as csvfile:
     # Write the header row
     writer.writerow(
         ['task_id', 'inter_arrival', 'arrival', 'priority', 'execution_time', 'start_execution_time',
-         'end_execution_time', 'processor'])
+         'end_execution_time', 'processor', 'gone_to_router', 'dropped'])
 
     # Write the data rows
     for task in tasks:
         writer.writerow(
             [task.task_id, task.inter_arrival, task.arrival, task.priority, task.execution_time,
-             task.start_execution_time, task.end_execution_time, task.processor])
-
-
+             task.start_execution_time, task.end_execution_time, task.processor, task.gone_to_router, task.dropped])
