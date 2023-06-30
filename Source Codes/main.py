@@ -277,3 +277,5 @@ with open('tasks.csv', 'w', newline='') as csvfile:
         writer.writerow(
             [task.task_id, task.inter_arrival, task.arrival, task.priority, task.execution_time,
              task.start_execution_time, task.end_execution_time, task.processor])
+
+
