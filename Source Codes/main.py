@@ -130,7 +130,7 @@ class NPPS(BaseQueue):
     def add_arrival_to_queue(self, task):
         if len(self.queue) < self.length_limit:
             self.queue.append(task)
-            self.queue = sorted(self.queue, key=lambda x: (x.priority, x.inter_arrival))
+            self.queue = sorted(self.queue, key=lambda x: (x.priority, x.arrival))
         else:
             task.dropped = True
 
